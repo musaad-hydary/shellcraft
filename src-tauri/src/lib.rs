@@ -1,5 +1,3 @@
-use std::io::{BufRead, BufReader};
-use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
@@ -80,8 +78,8 @@ mod storage {
     }
 }
 
-const WINDOW_HEIGHT: f64 = 250.0;
-const PIPE_PATH: &str = "/tmp/shellcraft.pipe";
+const WINDOW_HEIGHT: f64 = 220.0;
+const BUFFER_FILE_PATH: &str = "/tmp/shellcraft_buffer.json";
 const EXEC_FILE_PATH: &str = "/tmp/shellcraft_exec.json";
 
 fn position_window(window: &tauri::WebviewWindow) {
@@ -97,51 +95,6 @@ fn position_window(window: &tauri::WebviewWindow) {
         window.set_position(tauri::Position::Physical(
             tauri::PhysicalPosition { x: px, y: py }
         )).ok();
-    }
-}
-
-fn handle_buffer_message(
-    content: &str,
-    app_handle: &Arc<tauri::AppHandle>,
-    window: &tauri::WebviewWindow,
-    is_visible: &Arc<Mutex<bool>>,
-    keystroke_count: &Arc<Mutex<u32>>,
-) {
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-        if let Some(buffer) = json["buffer"].as_str() {
-            let buffer = buffer.to_string();
-            app_handle.emit("buffer-update", buffer.clone()).ok();
-
-            if buffer.is_empty() {
-                let was_visible = *is_visible.lock().unwrap();
-                if was_visible {
-                    window.hide().ok();
-                    *is_visible.lock().unwrap() = false;
-                }
-                *keystroke_count.lock().unwrap() = 0;
-            } else if positioning::is_iterm_focused() {
-                let mut count = keystroke_count.lock().unwrap();
-                *count += 1;
-                let should_reposition = *count == 1 || *count % 8 == 0;
-                drop(count);
-
-                if should_reposition {
-                    position_window(window);
-                }
-
-                let already_visible = *is_visible.lock().unwrap();
-                if !already_visible {
-                    window.show().ok();
-                    *is_visible.lock().unwrap() = true;
-                }
-            } else {
-                let was_visible = *is_visible.lock().unwrap();
-                if was_visible {
-                    window.hide().ok();
-                    *is_visible.lock().unwrap() = false;
-                }
-            }
-        }
     }
 }
 
@@ -183,28 +136,32 @@ pub fn run() {
             let window_clone = window.clone();
             let is_visible: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
             let is_visible_poll = is_visible.clone();
-            let is_visible_pipe = is_visible.clone();
+            let is_visible_buf = is_visible.clone();
             let is_visible_exec = is_visible.clone();
             let is_visible_pos = is_visible.clone();
+
+            // shared focus state — only osascript poll updates this
+            let iterm_focused: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+            let iterm_focused_poll = iterm_focused.clone();
+            let iterm_focused_buf = iterm_focused.clone();
+
             let keystroke_count: Arc<Mutex<u32>> = Arc::new(Mutex::new(0));
             let keystroke_count_clone = keystroke_count.clone();
             let keystroke_count_exec = keystroke_count.clone();
 
-            // always recreate pipe fresh
-            if std::path::Path::new(PIPE_PATH).exists() {
-                std::fs::remove_file(PIPE_PATH).ok();
-            }
-            std::process::Command::new("mkfifo").arg(PIPE_PATH).output().ok();
+            std::fs::remove_file("/tmp/shellcraft.pipe").ok();
 
             let recent = storage::load_recent();
             app_handle.emit("recent-loaded", recent).ok();
 
-            // focus poll
+            // focus poll — runs every 1500ms, updates shared state
             let window_poll = window.clone();
             std::thread::spawn(move || {
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(600));
-                    if !positioning::is_iterm_focused() {
+                    std::thread::sleep(std::time::Duration::from_millis(1500));
+                    let focused = positioning::is_iterm_focused();
+                    *iterm_focused_poll.lock().unwrap() = focused;
+                    if !focused {
                         let was_visible = *is_visible_poll.lock().unwrap();
                         if was_visible {
                             window_poll.hide().ok();
@@ -214,19 +171,19 @@ pub fn run() {
                 }
             });
 
-            // position poll
+            // position poll — runs every 1000ms only when visible
             let window_pos = window.clone();
             std::thread::spawn(move || {
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
                     let visible = *is_visible_pos.lock().unwrap();
-                    if visible && positioning::is_iterm_focused() {
+                    if visible {
                         position_window(&window_pos);
                     }
                 }
             });
 
-            // exec file poller
+            // exec file poller — 80ms
             let app_handle_exec = app_handle.clone();
             let window_exec = window.clone();
             std::thread::spawn(move || {
@@ -268,28 +225,56 @@ pub fn run() {
                 }
             });
 
-            // buffer pipe reader — uses BufReader for reliable named pipe reading
+            // buffer file poller — 50ms, uses cached focus state
             std::thread::spawn(move || {
+                let mut last_buffer = String::new();
                 loop {
-                    match OpenOptions::new().read(true).open(PIPE_PATH) {
-                        Ok(file) => {
-                            let reader = BufReader::new(file);
-                            for line in reader.lines() {
-                                if let Ok(content) = line {
-                                    let content = content.trim().to_string();
-                                    if content.is_empty() { continue; }
-                                    handle_buffer_message(
-                                        &content,
-                                        &app_handle,
-                                        &window_clone,
-                                        &is_visible_pipe,
-                                        &keystroke_count_clone,
-                                    );
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    if let Ok(content) = std::fs::read_to_string(BUFFER_FILE_PATH) {
+                        let content = content.trim().to_string();
+                        if content.is_empty() || content == last_buffer { continue; }
+                        last_buffer = content.clone();
+
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(buffer) = json["buffer"].as_str() {
+                                let buffer = buffer.to_string();
+                                app_handle.emit("buffer-update", buffer.clone()).ok();
+
+                                if buffer.is_empty() {
+                                    let was_visible = *is_visible_buf.lock().unwrap();
+                                    if was_visible {
+                                        window_clone.hide().ok();
+                                        *is_visible_buf.lock().unwrap() = false;
+                                    }
+                                    *keystroke_count_clone.lock().unwrap() = 0;
+                                } else {
+                                    // use cached focus state — no osascript call here
+                                    let focused = *iterm_focused_buf.lock().unwrap();
+                                    if focused {
+                                        let mut count = keystroke_count_clone.lock().unwrap();
+                                        *count += 1;
+                                        let first_keystroke = *count == 1;
+                                        drop(count);
+
+                                        // only reposition on first keystroke
+                                        if first_keystroke {
+                                            position_window(&window_clone);
+                                        }
+
+                                        let already_visible = *is_visible_buf.lock().unwrap();
+                                        if !already_visible {
+                                            window_clone.show().ok();
+                                            *is_visible_buf.lock().unwrap() = true;
+                                        }
+                                    } else {
+                                        let was_visible = *is_visible_buf.lock().unwrap();
+                                        if was_visible {
+                                            window_clone.hide().ok();
+                                            *is_visible_buf.lock().unwrap() = false;
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        Err(_) => {
-                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                     }
                 }
