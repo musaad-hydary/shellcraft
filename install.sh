@@ -23,13 +23,16 @@ if [[ "$1" == "uninstall" ]]; then
   print_step "Uninstalling shellcraft..."
   pkill -x shellcraft 2>/dev/null || true
   rm -rf "$APP_PATH"
+  rm -rf "/Applications/shellcraft.app"
   rm -f "$BIN_PATH"
-  rm -f "$ZSH_PLUGIN_PATH"
+  rm -f "$HOME/.shellcraft/shellcraft.zsh"
   sed -i '' '/shellcraft/d' "$ZSHRC" 2>/dev/null || true
   rm -rf "$HOME/.shellcraft"
   rm -f /tmp/shellcraft_buffer.json
   rm -f /tmp/shellcraft_exec.json
+  rm -f /tmp/shellcraft.pipe
   echo -e "${GREEN}shellcraft uninstalled.${NC}"
+  echo "  open a new terminal tab to complete removal."
   exit 0
 fi
 
@@ -46,6 +49,9 @@ if ! osascript -e 'id of application "iTerm2"' &>/dev/null 2>&1; then
   echo "  download at https://iterm2.com"
   echo ""
 fi
+
+# kill existing instance
+pkill -x shellcraft 2>/dev/null || true
 
 # download latest release
 print_step "Downloading shellcraft..."
@@ -81,6 +87,13 @@ rm -rf "$TMP_DIR"
 # remove quarantine
 xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 
+# install zsh plugin
+print_step "Installing ZSH plugin..."
+mkdir -p "$HOME/.shellcraft"
+curl -fsSL "https://raw.githubusercontent.com/$REPO/main/shell/shellcraft.zsh" \
+  -o "$ZSH_PLUGIN_PATH" \
+  || print_err "Failed to download ZSH plugin"
+
 # create bin launcher
 print_step "Installing shellcraft command..."
 mkdir -p "$BIN_DIR"
@@ -97,13 +110,6 @@ disown
 echo "shellcraft started"
 BINEOF
 chmod +x "$BIN_PATH"
-
-# install zsh plugin
-print_step "Installing ZSH plugin..."
-mkdir -p "$HOME/.shellcraft"
-curl -fsSL "https://raw.githubusercontent.com/$REPO/main/shell/shellcraft.zsh" \
-  -o "$ZSH_PLUGIN_PATH" \
-  || print_err "Failed to download ZSH plugin"
 
 # add to .zshrc
 if ! grep -q "shellcraft" "$ZSHRC" 2>/dev/null; then
@@ -124,8 +130,6 @@ fi
 
 # launch
 print_step "Launching shellcraft..."
-pkill -x shellcraft 2>/dev/null || true
-sleep 0.2
 "$HOME/Applications/shellcraft.app/Contents/MacOS/shellcraft" &
 disown
 
@@ -137,4 +141,5 @@ echo "  shellcraft will appear automatically above your terminal."
 echo ""
 echo "  to restart:   shellcraft"
 echo "  to uninstall: shellcraft uninstall"
+echo "               or: curl -fsSL https://raw.githubusercontent.com/musaad-hydary/shellcraft/main/install.sh | bash -s uninstall"
 echo ""
