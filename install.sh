@@ -3,7 +3,7 @@
 set -e
 
 REPO="musaad-hydary/shellcraft"
-APP_PATH="/Applications/shellcraft.app"
+APP_PATH="$HOME/Applications/shellcraft.app"
 BIN_DIR="$HOME/.local/bin"
 BIN_PATH="$BIN_DIR/shellcraft"
 ZSH_PLUGIN_PATH="$HOME/.shellcraft/shellcraft.zsh"
@@ -70,6 +70,7 @@ curl -fsSL "$ASSET_URL" -o "$DMG_PATH" \
 
 # install app
 print_step "Installing shellcraft.app..."
+mkdir -p "$HOME/Applications"
 MOUNT_DIR=$(mktemp -d)
 hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_DIR" -quiet
 rm -rf "$APP_PATH"
@@ -83,15 +84,15 @@ xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 # create bin launcher
 print_step "Installing shellcraft command..."
 mkdir -p "$BIN_DIR"
-cat > "$BIN_PATH" << 'BINEOF'
+cat > "$BIN_PATH" << BINEOF
 #!/bin/bash
-if [[ "$1" == "uninstall" ]]; then
+if [[ "\$1" == "uninstall" ]]; then
   curl -fsSL https://raw.githubusercontent.com/musaad-hydary/shellcraft/main/install.sh | bash -s uninstall
   exit 0
 fi
 pkill -x shellcraft 2>/dev/null || true
 sleep 0.2
-/Applications/shellcraft.app/Contents/MacOS/shellcraft &
+$HOME/Applications/shellcraft.app/Contents/MacOS/shellcraft &
 disown
 echo "shellcraft started"
 BINEOF
@@ -112,7 +113,7 @@ if ! grep -q "shellcraft" "$ZSHRC" 2>/dev/null; then
 export PATH="$HOME/.local/bin:$PATH"
 source ~/.shellcraft/shellcraft.zsh
 if ! pgrep -x shellcraft > /dev/null; then
-  /Applications/shellcraft.app/Contents/MacOS/shellcraft &
+  ~/Applications/shellcraft.app/Contents/MacOS/shellcraft &
   disown
 fi
 ZSHEOF
@@ -125,7 +126,7 @@ fi
 print_step "Launching shellcraft..."
 pkill -x shellcraft 2>/dev/null || true
 sleep 0.2
-/Applications/shellcraft.app/Contents/MacOS/shellcraft &
+"$HOME/Applications/shellcraft.app/Contents/MacOS/shellcraft" &
 disown
 
 echo ""
