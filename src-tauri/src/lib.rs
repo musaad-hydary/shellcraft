@@ -140,8 +140,9 @@ pub fn run() {
             let is_visible_exec = is_visible.clone();
             let is_visible_pos = is_visible.clone();
 
-            // shared focus state — only osascript poll updates this
-            let iterm_focused: Arc<Mutex<bool>> = Arc::new(Mutex::new(false));
+            // initialize focus state immediately — don't wait for first poll
+            let initial_focus = positioning::is_iterm_focused();
+            let iterm_focused: Arc<Mutex<bool>> = Arc::new(Mutex::new(initial_focus));
             let iterm_focused_poll = iterm_focused.clone();
             let iterm_focused_buf = iterm_focused.clone();
 
@@ -154,7 +155,7 @@ pub fn run() {
             let recent = storage::load_recent();
             app_handle.emit("recent-loaded", recent).ok();
 
-            // focus poll — runs every 1500ms, updates shared state
+            // focus poll — 1500ms, updates shared state
             let window_poll = window.clone();
             std::thread::spawn(move || {
                 loop {
@@ -171,7 +172,7 @@ pub fn run() {
                 }
             });
 
-            // position poll — runs every 1000ms only when visible
+            // position poll — 1000ms only when visible
             let window_pos = window.clone();
             std::thread::spawn(move || {
                 loop {
@@ -248,7 +249,6 @@ pub fn run() {
                                     }
                                     *keystroke_count_clone.lock().unwrap() = 0;
                                 } else {
-                                    // use cached focus state — no osascript call here
                                     let focused = *iterm_focused_buf.lock().unwrap();
                                     if focused {
                                         let mut count = keystroke_count_clone.lock().unwrap();
@@ -256,7 +256,6 @@ pub fn run() {
                                         let first_keystroke = *count == 1;
                                         drop(count);
 
-                                        // only reposition on first keystroke
                                         if first_keystroke {
                                             position_window(&window_clone);
                                         }
