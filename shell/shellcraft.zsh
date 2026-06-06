@@ -1,29 +1,23 @@
 #!/bin/zsh
 
-SHELLCRAFT_PIPE="/tmp/shellcraft.pipe"
+SHELLCRAFT_BUFFER_FILE="/tmp/shellcraft_buffer.json"
 SHELLCRAFT_EXEC_FILE="/tmp/shellcraft_exec.json"
-
-[[ -p "$SHELLCRAFT_PIPE" ]] || mkfifo "$SHELLCRAFT_PIPE"
-
-_shellcraft_send() {
-  echo "$1" > "$SHELLCRAFT_PIPE" &!
-}
 
 _shellcraft_explain() {
   local buffer="$BUFFER"
   local cmd="${buffer%% *}"
 
-  if [[ -z "$buffer" ]]; then
-    _shellcraft_send '{"type":"buffer","buffer":""}'
+  if [[ ${#buffer} -lt 2 ]]; then
     return
   fi
 
-  if [[ "$buffer" != *" "* ]] && [[ ${#cmd} -lt 2 ]]; then
-    return
-  fi
+  local escaped="${buffer//\\/\\\\}"
+  escaped="${escaped//\"/\\\"}"
+  echo "{\"type\":\"buffer\",\"buffer\":\"${escaped}\"}" >| "$SHELLCRAFT_BUFFER_FILE" &!
+}
 
-  local escaped="${buffer//\"/\\\"}"
-  _shellcraft_send "{\"type\":\"buffer\",\"buffer\":\"${escaped}\"}"
+_shellcraft_clear() {
+  echo '{"type":"buffer","buffer":""}' >| "$SHELLCRAFT_BUFFER_FILE" &!
 }
 
 _shellcraft_accept_line() {
@@ -31,7 +25,7 @@ _shellcraft_accept_line() {
   if [[ -n "$buffer" ]]; then
     local escaped="${buffer//\\/\\\\}"
     escaped="${escaped//\"/\\\"}"
-    echo "{\"type\":\"execute\",\"buffer\":\"${escaped}\",\"exit_code\":0}" >| /tmp/shellcraft_exec.json
+    printf '{"type":"execute","buffer":"%s","exit_code":0}\n' "$escaped" >| "$SHELLCRAFT_EXEC_FILE"
   fi
   zle .accept-line
 }
@@ -43,7 +37,11 @@ _shellcraft_self_insert() {
 
 _shellcraft_backward_delete() {
   zle .backward-delete-char
-  _shellcraft_explain
+  if [[ ${#BUFFER} -lt 2 ]]; then
+    _shellcraft_clear
+  else
+    _shellcraft_explain
+  fi
 }
 
 _shellcraft_paste() {
@@ -69,6 +67,6 @@ zle -N yank _shellcraft_yank
 zle -N yank-pop _shellcraft_yank_pop
 
 zle-line-pre-redraw() {
-  _shellcraft_explain
+  :
 }
 zle -N zle-line-pre-redraw
