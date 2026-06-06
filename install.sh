@@ -111,18 +111,16 @@ echo "shellcraft started"
 BINEOF
 chmod +x "$BIN_PATH"
 
-# add to .zshrc
+# add to .zshrc using individual echo calls to avoid heredoc issues
 if ! grep -q "shellcraft" "$ZSHRC" 2>/dev/null; then
-  cat >> "$ZSHRC" << 'ZSHEOF'
-
-# shellcraft — terminal command explainer
-export PATH="$HOME/.local/bin:$PATH"
-source ~/.shellcraft/shellcraft.zsh
-if ! pgrep -x shellcraft > /dev/null; then
-  ~/Applications/shellcraft.app/Contents/MacOS/shellcraft &
-  disown
-fi
-ZSHEOF
+  echo "" >> "$ZSHRC"
+  echo "# shellcraft — terminal command explainer" >> "$ZSHRC"
+  echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$ZSHRC"
+  echo "source ~/.shellcraft/shellcraft.zsh" >> "$ZSHRC"
+  echo "if ! pgrep -x shellcraft > /dev/null; then" >> "$ZSHRC"
+  echo "  ~/Applications/shellcraft.app/Contents/MacOS/shellcraft &" >> "$ZSHRC"
+  echo "  disown" >> "$ZSHRC"
+  echo "fi" >> "$ZSHRC"
   print_dim "  added to ~/.zshrc"
 else
   print_dim "  ~/.zshrc already configured"
