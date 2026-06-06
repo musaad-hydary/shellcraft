@@ -3,9 +3,9 @@
 set -e
 
 REPO="musaad-hydary/shellcraft"
-APP_NAME="shellcraft"
 APP_PATH="/Applications/shellcraft.app"
-BIN_PATH="/usr/local/bin/shellcraft"
+BIN_DIR="$HOME/.local/bin"
+BIN_PATH="$BIN_DIR/shellcraft"
 ZSH_PLUGIN_PATH="$HOME/.shellcraft/shellcraft.zsh"
 ZSHRC="$HOME/.zshrc"
 
@@ -82,7 +82,7 @@ xattr -dr com.apple.quarantine "$APP_PATH" 2>/dev/null || true
 
 # create bin launcher
 print_step "Installing shellcraft command..."
-mkdir -p /usr/local/bin
+mkdir -p "$BIN_DIR"
 cat > "$BIN_PATH" << 'BINEOF'
 #!/bin/bash
 if [[ "$1" == "uninstall" ]]; then
@@ -109,6 +109,7 @@ if ! grep -q "shellcraft" "$ZSHRC" 2>/dev/null; then
   cat >> "$ZSHRC" << 'ZSHEOF'
 
 # shellcraft — terminal command explainer
+export PATH="$HOME/.local/bin:$PATH"
 source ~/.shellcraft/shellcraft.zsh
 if ! pgrep -x shellcraft > /dev/null; then
   /Applications/shellcraft.app/Contents/MacOS/shellcraft &
