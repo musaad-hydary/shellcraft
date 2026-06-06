@@ -2,7 +2,7 @@
 
 set -e
 
-REPO="musaadhydary/shellcraft"
+REPO="musaad-hydary/shellcraft"
 APP_NAME="shellcraft"
 APP_PATH="/Applications/shellcraft.app"
 BIN_PATH="/usr/local/bin/shellcraft"
